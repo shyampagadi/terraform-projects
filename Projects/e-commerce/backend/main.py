@@ -1,16 +1,14 @@
-from fastapi import FastAPI, HTTPException, Depends
-from pydantic import BaseModel
-from sqlalchemy import create_engine, Column, Integer, String, Float
+from fastapi import FastAPI, HTTPException, Depends, Query, status
+from pydantic import BaseModel, Field
+from sqlalchemy import create_engine, Column, Integer, String, Float, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 import os
 from fastapi.middleware.cors import CORSMiddleware
-import sys
-if sys.version_info >= (3, 13):
-    import typing
-    typing.TypeAlias = typing._SpecialForm
+from typing import List, Optional
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse    
+
 # Database configuration
 DB_HOST = os.getenv("DB_HOST", "localhost")
 DB_NAME = os.getenv("DB_NAME", "ecommerce")
@@ -25,7 +23,6 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
 # Database model
-# backend/main.py
 class ProductDB(Base):
     __tablename__ = "products"
     id = Column(Integer, primary_key=True, index=True)
@@ -33,16 +30,25 @@ class ProductDB(Base):
     description = Column(String)
     price = Column(Float)
     category = Column(String)
-    image_url = Column(String)  # Add this line
+    image_url = Column(String)
 
-class Product(BaseModel):
+# Pydantic models for request/response
+class ProductBase(BaseModel):
     name: str
     description: str
     price: float
     category: str
-    image_url: str  # Add this line
+    image_url: str = ""
 
-# Base.metadata.create_all(bind=engine)
+class ProductCreate(ProductBase):
+    pass
+
+class ProductResponse(ProductBase):
+    id: int
+    
+    class Config:
+        orm_mode = True
+
 import logging
 from contextlib import asynccontextmanager
 
@@ -53,17 +59,33 @@ logger = logging.getLogger(__name__)
 # Add lifespan management
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Create tables on startup
-    Base.metadata.create_all(bind=engine)
-    logger.info("Database tables created")
-    yield
+    try:
+        # Test database connection
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+            logger.info("Database connection successful")
+            
+        # Create tables on startup
+        Base.metadata.create_all(bind=engine)
+        logger.info("Database tables created")
+        yield
+    except Exception as e:
+        logger.error(f"Database connection failed: {e}")
+        # Continue to allow the app to start even if DB connection fails
+        yield
 
-app = FastAPI(lifespan=lifespan)
-# Add this error handler
+app = FastAPI(
+    title="E-commerce API",
+    description="API for e-commerce product management",
+    version="1.0.0",
+    lifespan=lifespan
+)
+
+# Add error handlers
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request, exc):
     return JSONResponse(
-        status_code=422,
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         content={"detail": [{"msg": str(err)} for err in exc.errors()]},
     )
 
@@ -73,6 +95,7 @@ async def http_exception_handler(request, exc):
         status_code=exc.status_code,
         content={"detail": exc.detail},
     )
+
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
@@ -81,7 +104,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 
 # Dependency
 def get_db():
@@ -92,60 +114,64 @@ def get_db():
         db.close()
 
 # CRUD endpoints
-@app.post("/products/", response_model=Product)
-def create_product(product: Product, db: Session = Depends(get_db)):
+@app.post("/products/", response_model=ProductResponse, status_code=status.HTTP_201_CREATED)
+def create_product(product: ProductCreate, db: Session = Depends(get_db)):
     db_product = ProductDB(**product.dict())
     db.add(db_product)
     db.commit()
     db.refresh(db_product)
     return db_product
 
-@app.get("/products/", response_model=list[Product])
-def read_products(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
-    products = db.query(ProductDB).offset(skip).limit(limit).all()
+@app.get("/products/", response_model=List[ProductResponse])
+def read_products(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=100),
+    category: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    query = db.query(ProductDB)
+    if category:
+        query = query.filter(ProductDB.category == category)
+    products = query.offset(skip).limit(limit).all()
     return products
 
-@app.get("/products/{product_id}", response_model=Product)
+@app.get("/products/{product_id}", response_model=ProductResponse)
 def read_product(product_id: int, db: Session = Depends(get_db)):
     product = db.query(ProductDB).filter(ProductDB.id == product_id).first()
     if not product:
-        raise HTTPException(status_code=404, detail="Product not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, 
+            detail=f"Product with ID {product_id} not found"
+        )
     return product
 
-@app.put("/products/{product_id}", response_model=Product)
-def update_product(product_id: int, product: Product, db: Session = Depends(get_db)):
+@app.put("/products/{product_id}", response_model=ProductResponse)
+def update_product(product_id: int, product: ProductCreate, db: Session = Depends(get_db)):
     db_product = db.query(ProductDB).filter(ProductDB.id == product_id).first()
     if not db_product:
-        raise HTTPException(status_code=404, detail="Product not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, 
+            detail=f"Product with ID {product_id} not found"
+        )
     for key, value in product.dict().items():
         setattr(db_product, key, value)
     db.commit()
     db.refresh(db_product)
     return db_product
 
-@app.delete("/products/{product_id}")
+@app.delete("/products/{product_id}", status_code=status.HTTP_200_OK)
 def delete_product(product_id: int, db: Session = Depends(get_db)):
     product = db.query(ProductDB).filter(ProductDB.id == product_id).first()
     if not product:
-        raise HTTPException(status_code=404, detail="Product not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, 
+            detail=f"Product with ID {product_id} not found"
+        )
     db.delete(product)
     db.commit()
-    return {"message": "Product deleted"}
+    return {"message": f"Product with ID {product_id} deleted successfully"}
 
-@app.get("/products/{product_id}", response_model=Product)
-def read_product(product_id: str, db: Session = Depends(get_db)):
-    try:
-        # Convert to integer if possible
-        product_id_int = int(product_id)
-    except ValueError:
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid product ID format"
-        )
-    
-    product = db.query(ProductDB).filter(ProductDB.id == product_id_int).first()
-    
-    if not product:
-        raise HTTPException(status_code=404, detail="Product not found")
-    
-    return product
+# Health check endpoint
+@app.get("/health", status_code=status.HTTP_200_OK)
+def health_check():
+    return {"status": "healthy"}

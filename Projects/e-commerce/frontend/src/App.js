@@ -9,6 +9,7 @@ import ProductListPage from './pages/ProductListPage';
 import ProductDetailPage from './pages/ProductDetailPage';
 import CreateProductPage from './pages/CreateProductPage';
 import EditProductPage from './pages/EditProductPage';
+import NotFoundPage from './pages/NotFoundPage';
 import './styles/App.css';
 
 function App() {
@@ -23,6 +24,7 @@ function App() {
             <Route path="/products/:id" element={<ProductDetailPage />} />
             <Route path="/create-product" element={<CreateProductPage />} />
             <Route path="/edit-product/:id" element={<EditProductPage />} />
+            <Route path="*" element={<NotFoundPage />} />
           </Routes>
         </main>
         <Footer />
