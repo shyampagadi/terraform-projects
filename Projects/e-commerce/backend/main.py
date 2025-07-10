@@ -7,7 +7,11 @@ import os
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Optional
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse    
+from fastapi.responses import JSONResponse
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Database configuration
 DB_HOST = os.getenv("DB_HOST", "localhost")
@@ -15,6 +19,11 @@ DB_NAME = os.getenv("DB_NAME", "ecommerce")
 DB_USER = os.getenv("DB_USER", "postgres")
 DB_PASSWORD = os.getenv("DB_PASSWORD", "admin")
 DB_PORT = os.getenv("DB_PORT", "5432")
+
+# API configuration
+API_HOST = os.getenv("API_HOST", "0.0.0.0")
+API_PORT = int(os.getenv("API_PORT", "8000"))
+DEBUG = os.getenv("DEBUG", "False").lower() in ("true", "1", "t")
 
 DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 
@@ -53,7 +62,8 @@ import logging
 from contextlib import asynccontextmanager
 
 # Set up logging
-logging.basicConfig(level=logging.INFO)
+logging_level = logging.DEBUG if DEBUG else logging.INFO
+logging.basicConfig(level=logging_level)
 logger = logging.getLogger(__name__)
 
 # Add lifespan management
@@ -78,7 +88,8 @@ app = FastAPI(
     title="E-commerce API",
     description="API for e-commerce product management",
     version="1.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
+    debug=DEBUG
 )
 
 # Add error handlers
@@ -174,4 +185,14 @@ def delete_product(product_id: int, db: Session = Depends(get_db)):
 # Health check endpoint
 @app.get("/health", status_code=status.HTTP_200_OK)
 def health_check():
-    return {"status": "healthy"}
+    return {
+        "status": "healthy",
+        "database": DATABASE_URL.replace(DB_PASSWORD, "********"),
+        "debug_mode": DEBUG
+    }
+
+# Add server startup information
+if __name__ == "__main__":
+    import uvicorn
+    logger.info(f"Starting server on {API_HOST}:{API_PORT} (debug={DEBUG})")
+    uvicorn.run("main:app", host=API_HOST, port=API_PORT, reload=DEBUG)
