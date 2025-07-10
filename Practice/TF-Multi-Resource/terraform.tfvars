@@ -1,0 +1,1 @@
+subnet_name = [ "public-subnet", "private-subnet" ]

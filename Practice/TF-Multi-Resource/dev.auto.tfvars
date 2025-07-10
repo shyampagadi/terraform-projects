@@ -1,0 +1,1 @@
+# subnet_name = [ "private-subnet" , "public-subnet"]
