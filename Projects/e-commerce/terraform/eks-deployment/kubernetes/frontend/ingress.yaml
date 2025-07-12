@@ -1,0 +1,29 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: frontend-ingress
+  namespace: ecommerce
+  annotations:
+    kubernetes.io/ingress.class: "alb"
+    alb.ingress.kubernetes.io/scheme: "internet-facing"
+    alb.ingress.kubernetes.io/target-type: "ip"
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    alb.ingress.kubernetes.io/healthcheck-path: "/health"
+    alb.ingress.kubernetes.io/success-codes: "200-399"
+    alb.ingress.kubernetes.io/group.name: "ecommerce"
+    external-dns.alpha.kubernetes.io/hostname: "ecommerce.example.com"
+    alb.ingress.kubernetes.io/certificate-arn: "${SSL_CERTIFICATE_ARN}"
+    alb.ingress.kubernetes.io/tags: "Environment=${ENVIRONMENT},Project=ecommerce"
+spec:
+  rules:
+  - host: "ecommerce.example.com"
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: frontend
+            port:
+              name: http 

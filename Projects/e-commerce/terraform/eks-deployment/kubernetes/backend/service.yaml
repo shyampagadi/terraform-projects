@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-api
+  namespace: ecommerce
+  labels:
+    app: backend-api
+    tier: api
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8080"
+    prometheus.io/path: "/metrics"
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8080
+    targetPort: 8080
+    protocol: TCP
+    name: http
+  selector:
+    app: backend-api
+    tier: api 
